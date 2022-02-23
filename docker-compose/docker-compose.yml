@@ -1,0 +1,103 @@
+version: '3.4'
+services:
+
+  alfresco-community-erecruitment-acs:
+    image: consiglionazionalericerche/alfresco-community-erecruitment:7.0.1
+    ports:
+      - 9080:8080
+    environment:
+      JAVA_TOOL_OPTIONS: "-Dencryption.keystore.type=JCEKS -Dencryption.cipherAlgorithm=AES/CBC/PKCS5Padding -Dencryption.keyAlgorithm=AES -Dencryption.keystore.location=/usr/local/tomcat/shared/classes/alfresco/extension/keystore/keystore -Dmetadata-keystore.password=mp6yc0UD9e -Dmetadata-keystore.aliases=metadata -Dmetadata-keystore.metadata.password=oKIWzVdEdA -Dmetadata-keystore.metadata.algorithm=AES"
+      JAVA_OPTS: '-Xmx2g'
+      LANG: en_US.UTF-8
+      LANGUAGE: en_US:en
+      LC_ALL: en_US.UTF-8
+    volumes:
+      - ./alfresco-global.properties:/usr/local/tomcat/shared/classes/alfresco-global.properties
+      - ./alf_data:/usr/local/tomcat/alf_data
+
+    depends_on:
+      - alfresco-community-erecruitment-postgres    
+    links:
+      - activemq:activemq    
+
+  alfresco-community-erecruitment-postgres:
+    image: postgres:13.2
+    environment:
+      POSTGRES_DB: alfresco
+      POSTGRES_USER: alfresco
+      POSTGRES_PASSWORD: alfresco
+    command: postgres -c max_connections=300 -c log_min_messages=LOG
+    volumes:
+      - ./pgdata:/var/lib/postgresql/data/
+    expose:
+      - "5432"
+
+  alfresco-search-services:
+    image: alfresco/alfresco-search-services:1.2.0
+    environment:
+      - '-Xmx1g'
+      - SOLR_ALFRESCO_HOST=alfresco-community-erecruitment-acs
+      - SOLR_ALFRESCO_PORT=8080
+      - SOLR_SOLR_HOST=alfresco-community-erecruitment-acs
+      - SOLR_SOLR_PORT=8983
+      - SOLR_CREATE_ALFRESCO_DEFAULTS=alfresco,archive
+    expose:
+      - "8983"
+
+  activemq:
+        image: alfresco/alfresco-activemq:5.16.1
+        ports:
+            - 8161:8161 # Web Console
+            - 5672:5672 # AMQP
+            - 61616:61616 # OpenWire
+            - 61613:61613 # STOMP
+  spid-testenv2:
+        image: italia/spid-testenv2
+        ports:
+          - 8088:8088
+        volumes:
+          - ./spid-conf:/app/conf
+        labels:
+          - SERVICE_NAME=spid-testenv2
+
+  helpdesk:
+    image: consiglionazionalericerche/oil:latest
+    ports:
+      - 9081:8080
+    links:
+      - pgoil:pgoil
+    volumes:
+      - ./standalone-full.xml:/opt/jboss/wildfly/standalone/configuration/standalone-full.xml
+
+  pgoil:
+    image: postgres:9.2
+    environment:
+      - POSTGRES_PASSWORD=helpdeskpw
+      - POSTGRES_USER=helpdesk
+      - POSTGRES_DB=helpdeskdb
+    command: postgres -c max_connections=300 -c log_min_messages=LOG
+    volumes:
+      - ./pgdata-helpdesk:/var/lib/postgresql/data/
+      - ./initdb-helpdesk:/docker-entrypoint-initdb.d/      
+    expose:
+      - "5432"
+
+  nginx:
+    image: nginx:1.13-alpine
+    ports:
+      - 80:80
+    environment:
+      - 'FASTCGI_READ_TIMEOUT=300s'
+    links:
+      - alfresco-community-erecruitment-acs:alfresco-community-erecruitment-acs
+      - alfresco-search-services:alfresco-search-services
+    depends_on:
+      - alfresco-community-erecruitment-acs
+      - alfresco-search-services
+    labels:
+      SERVICE_NAME: nginx
+    read_only: true
+    volumes:
+      - ./conf.d/:/etc/nginx/conf.d/
+      - /var/cache/nginx/
+      - /var/run/
